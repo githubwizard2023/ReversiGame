@@ -1,0 +1,63 @@
+# Ignore everything by default
+*
+
+# Allow Unity text-based files
+!*.cs
+!*.shader
+!*.compute
+!*.cginc
+!*.hlsl
+!*.glsl
+
+# Unity asset files
+!*.unity
+!*.prefab
+!*.asset
+!*.mat
+!*.controller
+!*.overrideController
+!*.anim
+!*.mask
+!*.physicMaterial
+!*.physicsMaterial2D
+!*.guiskin
+!*.flare
+
+# Assembly definitions
+!*.asmdef
+!*.asmref
+
+# Configuration files
+!*.json
+!*.txt
+!*.md
+!*.xml
+!*.yml
+!*.yaml
+
+# Meta files (IMPORTANT for Unity)
+!*.meta
+
+# Project settings
+!*.inputactions
+
+# Allow .gitignore itself
+!.gitignore
+!.gitattributes
+
+# Allow directories to be traversed
+!*/
+
+# But always ignore these Unity folders even if they match above
+Library/
+Temp/
+Obj/
+Build/
+Builds/
+Logs/
+UserSettings/
+MemoryCaptures/
+
+# Always ignore OS files
+.DS_Store
+Thumbs.db
