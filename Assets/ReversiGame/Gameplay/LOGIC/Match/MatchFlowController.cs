@@ -35,6 +35,14 @@ namespace Game
         // Raised when the active turn changes so the UI can update the turn indicator.
         public event Action<TurnParticipant> on_turn_changed;
 
+        public TurnParticipant current_turn_participant => _match_state.current_turn_participant;
+
+        public CellState player_disc_color => _player_disc_color;
+
+        public CellState ai_disc_color => _ai_disc_color;
+
+        public MatchPhase match_phase => _match_state.match_phase;
+
         public MatchFlowController(
             ReversiBoard board,
             ReversiLegalMoveFinder legal_move_finder,
@@ -201,6 +209,11 @@ namespace Game
             }
 
             return _ai_disc_color;
+        }
+
+        public CellState GetCurrentTurnDiscColor()
+        {
+            return GetCurrentDiscColor();
         }
 
         // Converts the setup-phase DiscColor enum to the gameplay-phase CellState enum.

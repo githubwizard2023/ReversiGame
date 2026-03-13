@@ -22,23 +22,46 @@ namespace Game
         [SerializeField]
         private Texture2D _help_piece_texture;
 
+        [SerializeField]
+        private Text _white_count_text;
+
+        [SerializeField]
+        private Text _black_count_text;
+
+        [SerializeField]
+        private Text _turn_text;
+
+        [SerializeField]
+        private Text _message_text;
+
         private CellView[,] _cell_views;
         private MatchFlowController _match_flow_controller;
         private ReversiBoard _reversi_board;
+        private ReversiBoardEvaluator _reversi_board_evaluator;
+        private IGameSetupSession _game_setup_session;
         private Sprite _piece_sprite;
         private Sprite _help_piece_sprite;
+        private GameSetupData _game_setup_data;
+        private bool _has_game_setup_data;
 
         [Inject]
-        private void Construct(MatchFlowController match_flow_controller, ReversiBoard reversi_board)
+        private void Construct(
+            MatchFlowController match_flow_controller,
+            ReversiBoard reversi_board,
+            ReversiBoardEvaluator reversi_board_evaluator,
+            IGameSetupSession game_setup_session)
         {
             _match_flow_controller = match_flow_controller;
             _reversi_board = reversi_board;
+            _reversi_board_evaluator = reversi_board_evaluator;
+            _game_setup_session = game_setup_session;
         }
 
         private void Start()
         {
             _piece_sprite = CreatePieceSprite();
             _help_piece_sprite = CreateHelpPieceSprite();
+            _has_game_setup_data = _game_setup_session.TryGetGameSetupData(out _game_setup_data);
             DisableBoardRootRaycastBlockers();
             CreateCellGrid();
             SubscribeToMatchEvents();
@@ -197,6 +220,7 @@ namespace Game
         private void SubscribeToMatchEvents()
         {
             _match_flow_controller.on_board_changed += RefreshBoard;
+            _match_flow_controller.on_turn_changed += HandleTurnChanged;
         }
 
         // Updates every cell view to reflect the current board state and highlights legal moves.
@@ -212,6 +236,7 @@ namespace Game
             }
 
             HighlightLegalMoves();
+            RefreshHud();
         }
 
         // Shows hint markers on cells where the human player can legally place a disc.
@@ -232,11 +257,70 @@ namespace Game
             _match_flow_controller.SubmitHumanMove(position);
         }
 
+        private void HandleTurnChanged(TurnParticipant current_turn_participant)
+        {
+            RefreshHud();
+        }
+
+        private void RefreshHud()
+        {
+            if (_white_count_text == null || _black_count_text == null || _turn_text == null || _message_text == null)
+            {
+                return;
+            }
+
+            int white_count = _reversi_board_evaluator.CountDiscs(_reversi_board, CellState.White);
+            int black_count = _reversi_board_evaluator.CountDiscs(_reversi_board, CellState.Black);
+
+            _white_count_text.text = $"{GetOwnerLabel(CellState.White)} White: {white_count}";
+            _black_count_text.text = $"{GetOwnerLabel(CellState.Black)} Black: {black_count}";
+
+            if (_match_flow_controller.match_phase == MatchPhase.WaitingToStart)
+            {
+                _turn_text.text = "Turn: Starting...";
+                _message_text.text = "Loading match...";
+                return;
+            }
+
+            TurnParticipant current_turn_participant = _match_flow_controller.current_turn_participant;
+            CellState current_turn_color = _match_flow_controller.GetCurrentTurnDiscColor();
+            _turn_text.text = $"Turn: {GetParticipantLabel(current_turn_participant)} ({GetDiscColorLabel(current_turn_color)})";
+            _message_text.text = current_turn_participant == TurnParticipant.Human
+                ? string.Empty
+                : "AI thinking...wait";
+        }
+
+        private string GetOwnerLabel(CellState disc_color)
+        {
+            if (_has_game_setup_data == false)
+            {
+                return disc_color == CellState.Black ? "YOU" : "AI";
+            }
+
+            if (_game_setup_data.ai_disc_color == DiscColor.White)
+            {
+                return disc_color == CellState.White ? "AI" : "YOU";
+            }
+
+            return disc_color == CellState.White ? "YOU" : "AI";
+        }
+
+        private static string GetParticipantLabel(TurnParticipant turn_participant)
+        {
+            return turn_participant == TurnParticipant.Human ? "YOU" : "AI";
+        }
+
+        private static string GetDiscColorLabel(CellState disc_color)
+        {
+            return disc_color == CellState.White ? "White" : "Black";
+        }
+
         private void OnDestroy()
         {
             if (_match_flow_controller != null)
             {
                 _match_flow_controller.on_board_changed -= RefreshBoard;
+                _match_flow_controller.on_turn_changed -= HandleTurnChanged;
             }
 
             if (_cell_views != null)
