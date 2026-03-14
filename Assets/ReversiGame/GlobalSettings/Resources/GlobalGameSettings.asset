@@ -13,4 +13,5 @@ MonoBehaviour:
   m_Name: GlobalGameSettings
   m_EditorClassIdentifier: 
   splash_duration_seconds: 5
+  platform: 0
   button_click_clip: {fileID: 8300000, guid: 213534e9e6021ab49bc7cb45e1ee7a2f, type: 3}

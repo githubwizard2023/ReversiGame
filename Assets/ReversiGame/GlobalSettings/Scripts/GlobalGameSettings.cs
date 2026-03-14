@@ -11,6 +11,8 @@ namespace Game
         [Min(0f)]
         public float splash_duration_seconds = 5f;
 
+        public Platforms platform = Platforms.AUTO;
+
         public AudioClip button_click_clip;
     }
 }

@@ -21,7 +21,7 @@ namespace Game
         private static readonly Color UNSELECTED_BUTTON_COLOR = new Color(1f, 1f, 1f, 0f);
 
         private const PlayerColorChoice DEFAULT_PLAYER_COLOR_CHOICE = PlayerColorChoice.Random;
-        private const DifficultyLevel DEFAULT_DIFFICULTY_LEVEL = DifficultyLevel.Medium;
+        private const DifficultyLevel DEFAULT_DIFFICULTY_LEVEL = DifficultyLevel.Easy;
 
         [SerializeField]
         private Button _black_button;

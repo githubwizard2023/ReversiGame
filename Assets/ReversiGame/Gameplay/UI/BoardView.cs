@@ -29,10 +29,25 @@ namespace Game
         private Text _black_count_text;
 
         [SerializeField]
+        private Image _white_piece_icon_image;
+
+        [SerializeField]
+        private Image _black_piece_icon_image;
+
+        [SerializeField]
         private Text _turn_text;
 
         [SerializeField]
+        private Image _turn_piece_icon_image;
+
+        [SerializeField]
         private Text _message_text;
+
+        [SerializeField]
+        private Sprite _white_piece_hud_sprite;
+
+        [SerializeField]
+        private Sprite _black_piece_hud_sprite;
 
         private CellView[,] _cell_views;
         private MatchFlowController _match_flow_controller;
@@ -43,6 +58,10 @@ namespace Game
         private Sprite _help_piece_sprite;
         private GameSetupData _game_setup_data;
         private bool _has_game_setup_data;
+        private int _ai_evaluated_move_count;
+        private int _ai_total_move_count;
+        private Coroutine _ai_thinking_clock_coroutine;
+        private int _ai_thinking_elapsed_seconds;
 
         [Inject]
         private void Construct(
@@ -62,10 +81,22 @@ namespace Game
             _piece_sprite = CreatePieceSprite();
             _help_piece_sprite = CreateHelpPieceSprite();
             _has_game_setup_data = _game_setup_session.TryGetGameSetupData(out _game_setup_data);
+            ConfigureHudText();
             DisableBoardRootRaycastBlockers();
             CreateCellGrid();
             SubscribeToMatchEvents();
             RefreshBoard();
+        }
+
+        private void ConfigureHudText()
+        {
+            if (_message_text != null)
+            {
+                _message_text.resizeTextForBestFit = true;
+                _message_text.resizeTextMinSize = 14;
+                _message_text.resizeTextMaxSize = 28;
+                _message_text.horizontalOverflow = HorizontalWrapMode.Overflow;
+            }
         }
 
         // Disables raycast interception on any existing Graphic on the board root itself.
@@ -221,6 +252,7 @@ namespace Game
         {
             _match_flow_controller.on_board_changed += RefreshBoard;
             _match_flow_controller.on_turn_changed += HandleTurnChanged;
+            _match_flow_controller.on_ai_thinking_progress += HandleAIThinkingProgress;
         }
 
         // Updates every cell view to reflect the current board state and highlights legal moves.
@@ -259,6 +291,24 @@ namespace Game
 
         private void HandleTurnChanged(TurnParticipant current_turn_participant)
         {
+            if (current_turn_participant != TurnParticipant.AI)
+            {
+                StopAIThinkingClock();
+                _ai_evaluated_move_count = 0;
+                _ai_total_move_count = 0;
+            }
+            else
+            {
+                StartAIThinkingClock();
+            }
+
+            RefreshHud();
+        }
+
+        private void HandleAIThinkingProgress(int evaluated_move_count, int total_move_count)
+        {
+            _ai_evaluated_move_count = evaluated_move_count;
+            _ai_total_move_count = total_move_count;
             RefreshHud();
         }
 
@@ -272,22 +322,106 @@ namespace Game
             int white_count = _reversi_board_evaluator.CountDiscs(_reversi_board, CellState.White);
             int black_count = _reversi_board_evaluator.CountDiscs(_reversi_board, CellState.Black);
 
-            _white_count_text.text = $"{GetOwnerLabel(CellState.White)} White: {white_count}";
-            _black_count_text.text = $"{GetOwnerLabel(CellState.Black)} Black: {black_count}";
+            RefreshHudIcons();
+
+            _white_count_text.text = $"{GetOwnerLabel(CellState.White)} {white_count}";
+            _black_count_text.text = $"{GetOwnerLabel(CellState.Black)} {black_count}";
 
             if (_match_flow_controller.match_phase == MatchPhase.WaitingToStart)
             {
-                _turn_text.text = "Turn: Starting...";
+                _turn_text.text = "TURN";
+                RefreshTurnIcon(null);
                 _message_text.text = "Loading match...";
+                return;
+            }
+
+            if (_match_flow_controller.match_phase == MatchPhase.Finished)
+            {
+                _turn_text.text = string.Empty;
+                RefreshTurnIcon(null);
+                _message_text.text = string.Empty;
                 return;
             }
 
             TurnParticipant current_turn_participant = _match_flow_controller.current_turn_participant;
             CellState current_turn_color = _match_flow_controller.GetCurrentTurnDiscColor();
-            _turn_text.text = $"Turn: {GetParticipantLabel(current_turn_participant)} ({GetDiscColorLabel(current_turn_color)})";
+            _turn_text.text = "TURN";
+            RefreshTurnIcon(current_turn_color);
             _message_text.text = current_turn_participant == TurnParticipant.Human
                 ? string.Empty
-                : "AI thinking...wait";
+                : BuildAIThinkingMessage();
+        }
+
+        private string BuildAIThinkingMessage()
+        {
+            return $"AI thinking {_ai_thinking_elapsed_seconds}s";
+        }
+
+        private void StartAIThinkingClock()
+        {
+            StopAIThinkingClock();
+            _ai_thinking_elapsed_seconds = 0;
+            _ai_thinking_clock_coroutine = StartCoroutine(RunAIThinkingClock());
+        }
+
+        private void StopAIThinkingClock()
+        {
+            if (_ai_thinking_clock_coroutine != null)
+            {
+                StopCoroutine(_ai_thinking_clock_coroutine);
+                _ai_thinking_clock_coroutine = null;
+            }
+
+            _ai_thinking_elapsed_seconds = 0;
+        }
+
+        private System.Collections.IEnumerator RunAIThinkingClock()
+        {
+            while (_match_flow_controller != null
+                && _match_flow_controller.match_phase == MatchPhase.InProgress
+                && _match_flow_controller.current_turn_participant == TurnParticipant.AI)
+            {
+                RefreshHud();
+                yield return new WaitForSecondsRealtime(1f);
+                _ai_thinking_elapsed_seconds++;
+            }
+
+            _ai_thinking_clock_coroutine = null;
+        }
+
+        private void RefreshHudIcons()
+        {
+            if (_white_piece_icon_image != null)
+            {
+                _white_piece_icon_image.sprite = _white_piece_hud_sprite;
+                _white_piece_icon_image.enabled = _white_piece_hud_sprite != null;
+            }
+
+            if (_black_piece_icon_image != null)
+            {
+                _black_piece_icon_image.sprite = _black_piece_hud_sprite;
+                _black_piece_icon_image.enabled = _black_piece_hud_sprite != null;
+            }
+        }
+
+        private void RefreshTurnIcon(CellState? disc_color)
+        {
+            if (_turn_piece_icon_image == null)
+            {
+                return;
+            }
+
+            if (disc_color.HasValue == false)
+            {
+                _turn_piece_icon_image.sprite = null;
+                _turn_piece_icon_image.enabled = false;
+                return;
+            }
+
+            _turn_piece_icon_image.sprite = disc_color.Value == CellState.White
+                ? _white_piece_hud_sprite
+                : _black_piece_hud_sprite;
+            _turn_piece_icon_image.enabled = _turn_piece_icon_image.sprite != null;
         }
 
         private string GetOwnerLabel(CellState disc_color)
@@ -310,17 +444,14 @@ namespace Game
             return turn_participant == TurnParticipant.Human ? "YOU" : "AI";
         }
 
-        private static string GetDiscColorLabel(CellState disc_color)
-        {
-            return disc_color == CellState.White ? "White" : "Black";
-        }
-
         private void OnDestroy()
         {
             if (_match_flow_controller != null)
             {
+                StopAIThinkingClock();
                 _match_flow_controller.on_board_changed -= RefreshBoard;
                 _match_flow_controller.on_turn_changed -= HandleTurnChanged;
+                _match_flow_controller.on_ai_thinking_progress -= HandleAIThinkingProgress;
             }
 
             if (_cell_views != null)

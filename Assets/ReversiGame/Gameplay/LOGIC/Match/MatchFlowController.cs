@@ -1,6 +1,8 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using UnityEngine;
 
 namespace Game
 {
@@ -16,6 +18,7 @@ namespace Game
         private readonly ReversiMoveExecutor _move_executor;
         private readonly ReversiBoardEvaluator _board_evaluator;
         private readonly AIMoveChooser _ai_move_chooser;
+        private readonly IGameplayCoroutineRunner _gameplay_coroutine_runner;
         private readonly MatchState _match_state;
 
         private CellState _player_disc_color;
@@ -35,6 +38,9 @@ namespace Game
         // Raised when the active turn changes so the UI can update the turn indicator.
         public event Action<TurnParticipant> on_turn_changed;
 
+        // Raised while the AI is evaluating candidate moves so the HUD can show live progress.
+        public event Action<int, int> on_ai_thinking_progress;
+
         public TurnParticipant current_turn_participant => _match_state.current_turn_participant;
 
         public CellState player_disc_color => _player_disc_color;
@@ -49,6 +55,7 @@ namespace Game
             ReversiMoveExecutor move_executor,
             ReversiBoardEvaluator board_evaluator,
             AIMoveChooser ai_move_chooser,
+            IGameplayCoroutineRunner gameplay_coroutine_runner,
             MatchState match_state)
         {
             _board = board;
@@ -56,6 +63,7 @@ namespace Game
             _move_executor = move_executor;
             _board_evaluator = board_evaluator;
             _ai_move_chooser = ai_move_chooser;
+            _gameplay_coroutine_runner = gameplay_coroutine_runner;
             _match_state = match_state;
         }
 
@@ -177,10 +185,8 @@ namespace Game
         private async Task ExecuteAITurnAsync(CellState disc_color)
         {
             on_board_changed?.Invoke();
-
-            await Task.Delay(AI_THINK_DELAY_MILLISECONDS);
-
-            BoardPosition? chosen_position = _ai_move_chooser.ChooseMove(_board, disc_color, _difficulty_level);
+            on_ai_thinking_progress?.Invoke(0, 0);
+            BoardPosition? chosen_position = await ChooseAIMoveAsync(disc_color);
 
             if (chosen_position.HasValue)
             {
@@ -188,7 +194,33 @@ namespace Game
                     _board, chosen_position.Value.row, chosen_position.Value.column, disc_color);
             }
 
+            on_ai_thinking_progress?.Invoke(0, 0);
             on_board_changed?.Invoke();
+        }
+
+        private Task<BoardPosition?> ChooseAIMoveAsync(CellState disc_color)
+        {
+            TaskCompletionSource<BoardPosition?> move_source =
+                new TaskCompletionSource<BoardPosition?>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            _gameplay_coroutine_runner.StartGameplayCoroutine(
+                RunAITurnCoroutine(disc_color, move_source));
+
+            return move_source.Task;
+        }
+
+        private IEnumerator RunAITurnCoroutine(
+            CellState disc_color,
+            TaskCompletionSource<BoardPosition?> move_source)
+        {
+            yield return new WaitForSecondsRealtime(AI_THINK_DELAY_MILLISECONDS / 1000f);
+
+            yield return _ai_move_chooser.ChooseMoveCoroutine(
+                _board,
+                disc_color,
+                _difficulty_level,
+                chosen_position => move_source.TrySetResult(chosen_position),
+                (evaluated_moves, total_moves) => on_ai_thinking_progress?.Invoke(evaluated_moves, total_moves));
         }
 
         // Finalizes the match, records the outcome, and notifies listeners.

@@ -60,9 +60,23 @@ namespace Game
 
                 GameStateTransitionResult transition_result = await state_strategy.ExecuteAsync();
 
+                foreach (string scene_name_to_unload in transition_result.scenes_to_unload)
+                {
+                    await _game_scene_transition_service.UnloadSceneAsync(scene_name_to_unload);
+                }
+
                 if (string.IsNullOrWhiteSpace(transition_result.target_scene_name) == false)
                 {
-                    await _game_scene_transition_service.TransitionToStageSceneAsync(transition_result.target_scene_name);
+                    if (transition_result.should_replace_current_stage_scene)
+                    {
+                        await _game_scene_transition_service.TransitionToStageSceneAsync(
+                            transition_result.target_scene_name);
+                    }
+                    else
+                    {
+                        await _game_scene_transition_service.LoadSceneAdditivelyAsync(
+                            transition_result.target_scene_name);
+                    }
                 }
 
                 current_game_state = transition_result.next_game_state;

@@ -11,6 +11,7 @@ namespace Game
         // The board is a single shared instance so all services operate on the same game state.
         public override void InstallBindings()
         {
+            Container.Bind<IGameplayCoroutineRunner>().FromComponentInHierarchy().AsSingle();
             Container.Bind<ReversiBoard>().AsSingle();
             Container.Bind<ReversiDiscFlipper>().AsSingle();
             Container.Bind<ReversiLegalMoveFinder>().AsSingle();

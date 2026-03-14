@@ -18,12 +18,16 @@ namespace Game
 
             Container.Bind<IGameManager>().To<GameManager>().AsSingle().NonLazy();
             Container.Bind<IGameSceneTransitionService>().To<GameSceneTransitionService>().AsSingle();
+            Container.Bind<ISplashContinueAwaiter>().To<SplashContinueAwaiter>().AsSingle();
             Container.Bind<IInstructionsContinueAwaiter>().To<InstructionsContinueAwaiter>().AsSingle();
             Container.Bind<IGameSetupSession>().To<GameSetupSession>().AsSingle();
             Container.Bind<IGameSetupCompletionAwaiter>().To<GameSetupCompletionAwaiter>().AsSingle();
             Container.Bind<IMatchResultSession>().To<MatchResultSession>().AsSingle();
             Container.Bind<IEndGameChoiceAwaiter>().To<EndGameChoiceAwaiter>().AsSingle();
+            Container.Bind<IPlatformSelectionResolver>().To<PlatformSelectionResolver>().AsSingle();
             Container.Bind<IAudioService>().To<AudioPoolService>().AsSingle();
+            Container.Bind<IGameplaySceneRuntime>().To<GameplaySceneRuntime>().AsSingle();
+            Container.Bind<IGameplayPostProcessingService>().To<GameplayPostProcessingService>().AsSingle();
             Container.BindInterfacesTo<MouseClickAudioTrigger>().AsSingle().NonLazy();
 
             Container.Bind<IGameFlowStateStrategy>().To<InitializeGameStateStrategy>().AsSingle();

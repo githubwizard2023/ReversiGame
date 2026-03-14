@@ -10,5 +10,11 @@ namespace Game
         // Unloads the current stage scene, if one exists, and loads the requested stage scene additively.
         // The bootstrap scene stays alive while stage scenes are swapped under it.
         Task TransitionToStageSceneAsync(string target_scene_name);
+
+        // Loads a scene additively without unloading the currently tracked stage scene.
+        Task LoadSceneAdditivelyAsync(string target_scene_name);
+
+        // Unloads a specific loaded scene by name if it is currently present.
+        Task UnloadSceneAsync(string target_scene_name);
     }
 }

@@ -27,19 +27,77 @@ namespace Game
 
             if (string.IsNullOrWhiteSpace(_current_stage_scene_name) == false)
             {
+                await UnloadSceneAsync(_current_stage_scene_name);
+            }
+
+            await LoadSceneInternalAsync(target_scene_name, true);
+        }
+
+        public async Task LoadSceneAdditivelyAsync(string target_scene_name)
+        {
+            if (string.IsNullOrWhiteSpace(target_scene_name))
+            {
+                return;
+            }
+
+            Scene target_scene = SceneManager.GetSceneByName(target_scene_name);
+
+            if (target_scene.IsValid() && target_scene.isLoaded)
+            {
+                SceneManager.SetActiveScene(target_scene);
+                return;
+            }
+
+            await LoadSceneInternalAsync(target_scene_name, false);
+        }
+
+        public async Task UnloadSceneAsync(string target_scene_name)
+        {
+            if (string.IsNullOrWhiteSpace(target_scene_name))
+            {
+                return;
+            }
+
+            Scene target_scene = SceneManager.GetSceneByName(target_scene_name);
+
+            if (target_scene.IsValid() == false || target_scene.isLoaded == false)
+            {
+                if (_current_stage_scene_name == target_scene_name)
+                {
+                    _current_stage_scene_name = null;
+                }
+
+                return;
+            }
+
+            bool is_tracked_stage_scene = _current_stage_scene_name == target_scene_name;
+            bool is_active_scene = SceneManager.GetActiveScene() == target_scene;
+
+            AsyncOperation unload_operation = SceneManager.UnloadSceneAsync(target_scene);
+
+            if (unload_operation != null)
+            {
+                await AwaitAsyncOperationAsync(unload_operation);
+            }
+
+            if (is_tracked_stage_scene)
+            {
+                _current_stage_scene_name = null;
+            }
+
+            if (is_active_scene && string.IsNullOrWhiteSpace(_current_stage_scene_name) == false)
+            {
                 Scene current_stage_scene = SceneManager.GetSceneByName(_current_stage_scene_name);
 
                 if (current_stage_scene.IsValid() && current_stage_scene.isLoaded)
                 {
-                    AsyncOperation unload_operation = SceneManager.UnloadSceneAsync(current_stage_scene);
-
-                    if (unload_operation != null)
-                    {
-                        await AwaitAsyncOperationAsync(unload_operation);
-                    }
+                    SceneManager.SetActiveScene(current_stage_scene);
                 }
             }
+        }
 
+        private async Task LoadSceneInternalAsync(string target_scene_name, bool should_track_as_current_stage_scene)
+        {
             AsyncOperation load_operation = SceneManager.LoadSceneAsync(target_scene_name, LoadSceneMode.Additive);
 
             if (load_operation == null)
@@ -54,7 +112,11 @@ namespace Game
             if (loaded_stage_scene.IsValid() && loaded_stage_scene.isLoaded)
             {
                 SceneManager.SetActiveScene(loaded_stage_scene);
-                _current_stage_scene_name = target_scene_name;
+
+                if (should_track_as_current_stage_scene)
+                {
+                    _current_stage_scene_name = target_scene_name;
+                }
             }
         }
 

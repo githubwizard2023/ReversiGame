@@ -2,89 +2,160 @@
 
 ## Summary
 
-This project is a Unity-based Reversi game in early production.
-The startup flow is already implemented with Zenject and scene-based orchestration.
-The gameplay scene is connected into the global flow and now includes a working Reversi gameplay domain, UI layer, and AI move selection.
+This project is a Unity-based Reversi game with a working end-to-end flow:
 
-## Current Architecture
+`Bootstrap -> Splash -> Instructions -> Settings -> Gameplay -> EndGame -> Quit/Menu/Replay`
+
+The project already has playable match logic, scene-based orchestration through Zenject, an additive endgame overlay flow, and AI move selection based on minimax with alpha-beta pruning.
+
+## Core Architecture
 
 - Engine: Unity
 - Language: C#
 - Dependency injection: Zenject
-- Runtime configuration: `ScriptableObject` via `GlobalGameSettings`
-- Startup flow style: table-driven state machine using strategies
-- Scene loading model: additive stage-scene transitions over a persistent bootstrap scene
-- Target gameplay style: pure C# domain logic with thin MonoBehaviour presentation
+- Shared configuration: `GlobalGameSettings` `ScriptableObject`
+- High-level flow: manager-owned state machine using `IGameFlowStateStrategy`
+- Scene transitions: additive loading through `GameSceneTransitionService`
+- Gameplay design: plain C# domain logic with thin MonoBehaviour presentation
 
-## Implemented Flow
+## Implemented Game Flow
 
-The current high-level game flow is:
+1. `Bootstrap.unity` starts and notifies the root flow.
+2. `GameManager` enters `GameState.Init`.
+3. `InitializeGameStateStrategy` transitions to `SplashScene`.
+4. `SplashGameStateStrategy` waits for the configured splash duration.
+5. Flow transitions to `InstructionsScene`.
+6. `InstructionsGameStateStrategy` waits for continue input.
+7. Flow transitions to `GameSettingsScene`.
+8. `SettingsGameStateStrategy` waits for the setup screen to submit the selected options.
+9. Flow transitions to `GameplayScene`.
+10. `GameplayGameStateStrategy` waits for the match to finish, then loads `EndGameScene` additively on top of `GameplayScene`.
+11. `EndGameGameStateStrategy` routes the next action:
+    - `Menu` -> unload `EndGameScene` and `GameplayScene`, then load `GameSettingsScene`
+    - `PlayAgain` -> unload `EndGameScene`, keep `GameplayScene` loaded, and restart the match in place
+    - `Quit` -> `GameState.Quit`
 
-1. `Bootstrap` scene starts.
-2. `BootstrapInitializeNotifier` notifies `GameManager` that startup is complete.
-3. `GameManager` enters `GameState.Init`.
-4. `InitializeGameStateStrategy` transitions to `SplashScene`.
-5. `SplashGameStateStrategy` waits for the configured splash duration.
-6. Flow transitions to `InstructionsScene`.
-7. `InstructionsGameStateStrategy` waits for continue input and transitions to `GameSettingsScene`.
-8. `SettingsGameStateStrategy` waits for the setup screen to report completion.
-9. `GameManager` transitions to `GameplayScene`.
-
-This means the global application flow now reaches gameplay through the manager-owned state pipeline.
+This means the full scene loop from startup to replay or quit already exists, and the end screen can appear without hiding the finished board state underneath.
 
 ## Main Systems In Place
 
 ### Bootstrap And Global Flow
 
-- `Assets/ReversiGame/BootStrap/Scene/Bootstrap.unity`
-- `BootstrapInitializeNotifier` is the bridge from scene startup into code-driven flow.
-- `GameManager` orchestrates high-level states.
-- `IGameFlowStateStrategy` defines one strategy per game state.
-- `GameSceneTransitionService` handles additive scene loading and unloading.
-- `GameFlowInstaller` binds shared flow services, input/audio services, and strategies through Zenject.
+- `BootStrap/Scene/Bootstrap.unity` is the persistent startup scene.
+- `BootstrapInitializeNotifier` bridges scene startup into code-driven flow.
+- `GameManager` orchestrates state execution and scene transitions.
+- `GameFlowInstaller` binds global services, awaiters, sessions, audio, and all current flow strategies.
+- `GameSceneTransitionService` performs additive scene loading and unloading.
 
-### Settings
+### Shared Settings And Platform Resolution
 
-- `GlobalGameSettings` currently exposes `splash_duration_seconds` and a shared `button_click_clip`.
-- The settings asset is loaded from `Resources/GlobalGameSettings`.
-- `GameSetupSession` stores the resolved setup data that gameplay can read after the settings scene unloads.
-- `GameSetupCompletionAwaiter` lets the settings scene report completion without owning scene transitions.
+- `GlobalGameSettings` currently exposes:
+  - `splash_duration_seconds`
+  - `platform`
+  - `button_click_clip`
+- The shared settings asset is loaded from `Resources/GlobalGameSettings`.
+- `PlatformSelectionResolver` resolves either the configured platform override or the runtime platform.
+
+### Setup Phase
+
+- `GameSetupScreen` and `GameSetupScreenController` drive setup UI.
+- `GameSetupResolver` converts UI selection into runtime-ready `GameSetupData`.
+- `GameSetupSession` persists the resolved setup after the settings scene unloads.
+- `GameSetupCompletionAwaiter` lets the settings scene report completion without owning scene flow.
+- Default setup selection currently starts with:
+  - player color: `Random`
+  - difficulty: `Easy`
+
+### Gameplay Phase
+
+- `GameplayInstaller` binds gameplay-local services inside the gameplay scene container.
+- `ReversiBoard` is the shared runtime board state.
+- `ReversiLegalMoveFinder`, `ReversiDiscFlipper`, and `ReversiMoveExecutor` handle the core rules.
+- `ReversiBoardEvaluator` handles scoring and game-over evaluation.
+- `MatchState` and `MatchFlowController` run the turn loop, pass handling, and match completion.
+- `GameplayCompletionAwaiter` lets the gameplay scene signal flow completion back to `GameManager`.
+- `GameplaySceneInitializer` now acts as a reusable gameplay scene controller that can start a fresh match without reloading the gameplay scene.
+- `GameplaySceneRuntime` lets the root flow start or restart the currently loaded gameplay scene on demand.
+
+### AI
+
+- `AIMoveChooser` selects AI moves with minimax and alpha-beta pruning.
+- Editor and non-WebGL builds use synchronous minimax with search depth:
+  - `Easy`: depth 1
+  - `Medium`: depth 3
+  - `Hard`: depth 5
+- WebGL uses a coroutine-based search spread across frames with search depth:
+  - `Easy`: depth 1
+  - `Medium`: depth 2
+  - `Hard`: depth 3
+- Non-WebGL leaf board evaluation is offloaded to Burst-compiled jobs over a flattened native board snapshot.
+- WebGL falls back to managed evaluation and yields regularly to avoid blocking the browser.
+- The heuristic is positional-weight based and tuned for standard 8x8 Reversi.
+
+### EndGame Phase
+
+- `MatchResultSession` stores the last completed match result between scene transitions.
+- `EndGameResultView` renders the final outcome.
+- `EndGameButtonsView` reports menu, replay, and quit actions through `IEndGameChoiceAwaiter`.
+- `EndGameQuitStrategySelector` resolves quit behavior by effective platform.
+- `EndGameScene` is loaded additively over `GameplayScene` so the final board can remain visible behind the endgame UI.
+- The endgame state disables gameplay post-processing blur once a choice is made and control returns to the flow manager.
+- Choosing `Menu` unloads both gameplay and endgame before returning to settings.
+- Choosing `PlayAgain` unloads only the endgame overlay and starts a new match inside the already-loaded gameplay scene.
+- Current quit strategies exist for:
+  - `EDITOR`
+  - `PC`
+  - `WebGL`
+  - `Secondlife`
 
 ### Audio And Input
 
 - `AudioPoolService` provides pooled one-shot playback through `IAudioService`.
-- `MouseClickAudioTrigger` uses the new Unity Input System to play the shared button click clip on left mouse clicks.
-- Shared audio clips are bound from `GlobalGameSettings` into the root Zenject container.
+- `MouseClickAudioTrigger` uses the new Unity Input System to play the shared click sound.
+- The project should continue using only the new Unity Input System.
 
-### Existing Content
+## Gameplay Module Snapshot
 
-- `SplashScene` exists and includes splash artwork.
-- `InstructionsScene` exists and includes an instructions image.
-- `GameSettingsScene` exists and includes the setup UI for player color and difficulty selection.
-- `GameplayScene` exists with gameplay logic, UI bindings, and turn-driven match flow.
+`Assets/ReversiGame/Gameplay` currently contains:
 
-## Gameplay Module Status
-
-The `Assets/ReversiGame/Gameplay` module currently contains:
-
-- `Scenes/GameplayScene.unity`
+- `Installer`
+- `Interfaces`
 - `LOGIC`
+- `Scenes`
+- `Textures`
 - `UI`
 
-Current observations:
+Implemented gameplay responsibilities:
 
-- The gameplay scene already contains a `SceneContext`.
-- The scene contains gameplay presentation objects under the canvas, including board and HUD views.
-- The gameplay module now includes board state, legal move finding, disc flipping, move execution, scoring, and game-over evaluation.
-- Match flow is implemented and coordinates human turns, AI turns, pass handling, and result resolution.
-- `AIMoveChooser` uses minimax with alpha-beta pruning and Burst-backed board evaluation jobs.
-- The gameplay code is no longer just a scaffold, though scene-level wiring can still be expanded.
+- Board initialization
+- Legal move detection
+- Disc flipping
+- Move execution
+- Turn ownership
+- Human input submission
+- AI turn execution
+- Pass handling
+- Match end detection
+- Match outcome resolution
+- Board and HUD refresh events
 
-This means the gameplay module is functional and already covers the core Reversi match loop.
+This is a functional gameplay module, not a placeholder scaffold.
+
+## Domain Model Direction
+
+The board model is specialized for classic 8x8 Reversi and should stay that way.
+
+Core cell states:
+
+- `Empty`
+- `Black`
+- `White`
+
+UI-only concepts such as legal-move hints must stay out of the board domain model.
 
 ## Existing Game States
 
-The `GameState` enum already anticipates a broader game:
+The current `GameState` enum includes:
 
 - `Init`
 - `Splash`
@@ -95,98 +166,57 @@ The `GameState` enum already anticipates a broader game:
 - `EndGame`
 - `Quit`
 
-`Init`, `Splash`, `Instructions`, and `Settings` currently have active strategy implementations.
-`Gameplay` is now backed by dedicated gameplay flow logic. `EndGame` is now the dedicated end-of-match flow state and scene.
+Active implemented runtime flow currently uses:
 
-## Recommended Gameplay Direction
+- `Init`
+- `Splash`
+- `Instructions`
+- `Settings`
+- `Gameplay`
+- `EndGame`
+- `Quit`
 
-The intended gameplay architecture should stay specialized for classic 8x8 Reversi and avoid generic board-game abstractions.
-
-Recommended separation:
-
-- Pure domain logic in plain C# classes
-- Thin gameplay orchestration layer for match flow and AI turn handling
-- Thin UI MonoBehaviours for board rendering, input forwarding, and HUD updates
-- Zenject used for scene-level composition, not for unnecessary abstraction
-- Burst used selectively for native-friendly AI evaluation hotspots rather than forcing the whole gameplay stack into jobs
-
-Recommended core gameplay systems:
-
-- Board state
-- Move validation
-- Disc flip resolution
-- Legal move finder
-- Turn management
-- Match flow controller
-- Score calculation
-- Game over evaluation
-- AI move chooser
-- Board view
-- Cell view
-- HUD view
-
-## Board Model Direction
-
-The clean board logic model for Reversi should be:
-
-- `Empty`
-- `Black`
-- `White`
-
-Legal move hints should remain UI-only state and must not be stored in the core board model.
-Grey optional move markers are presentation details, not gameplay facts.
-
-## UI Direction
-
-For the gameplay board:
-
-- The board root should remain named `Board`.
-- The current `RawImage` setup is not the ideal long-term component choice.
-- A `RectTransform` root with `Image`-based child cells is a better fit than a single `RawImage`.
-- An 8x8 `GridLayoutGroup` is a pragmatic choice for version 1.
-- Each cell should be its own child UI element.
-- A full board refresh after each move is acceptable and matches the project goals.
+`MainMenu` exists in the enum but is not part of the active scene pipeline shown in the scanned project structure.
 
 ## Folder Snapshot
 
 - `Assets/ReversiGame/AI`
-  - AI coding rules and project overview documents.
+  - Project documentation and AI-specific guidance.
+- `Assets/ReversiGame/Audio`
+  - Shared audio interfaces, pooled playback runtime, and click trigger.
 - `Assets/ReversiGame/BootStrap`
   - Persistent startup scene and bootstrap notifier.
+- `Assets/ReversiGame/EndGame`
+  - Endgame scene, result rendering, choice awaiter, match-result session, and quit strategies.
 - `Assets/ReversiGame/GameManager`
-  - High-level game flow state machine, transition service, interfaces, and installer.
+  - Global state machine, scene transition service, installers, and flow strategies.
 - `Assets/ReversiGame/GameSettings`
-  - Setup scene, selection logic, setup session storage, and related enums.
+  - Setup scene, setup UI, selection resolution, and session storage.
+- `Assets/ReversiGame/Gameplay`
+  - Gameplay installer, domain logic, AI, match flow, and UI views.
+- `Assets/ReversiGame/GlobalSettings`
+  - Shared runtime settings, audio asset references, and platform enums/resolution.
 - `Assets/ReversiGame/Instructions`
-  - Instructions scene and artwork.
-- `Assets/ReversiGame/Audio`
-  - Shared audio service interfaces, pooled playback runtime, and global mouse-click audio trigger.
+  - Instructions scene and continue flow.
 - `Assets/ReversiGame/Splash`
   - Splash scene and artwork.
-- `Assets/ReversiGame/Gameplay`
-  - Active gameplay module containing domain logic, AI, match flow, and UI views.
-- `Assets/ReversiGame/Docs`
-  - Present as a module folder, but currently unused from the scanned project content.
-
-## What Is Still Missing
-
-The project still has follow-up work around polish and expansion:
-
-- Gameplay installer and any remaining scene-level composition cleanup
-- Verification that Burst evaluation paths compile and perform correctly in the Unity editor and player builds
-- Additional AI tuning beyond the current minimax depth and positional-weight heuristic
-- Gameplay polish, feedback, and UX refinement
-- Broader state handling inside the dedicated `EndGame` scene or later endgame extensions
 
 ## Practical Assessment
 
-The project now has two strong foundations:
+The project already has three solid foundations:
 
-- A clean global startup flow
-- A manager-driven path from settings into gameplay
-- A functional gameplay module with domain logic, UI, and AI integration
+- A manager-driven global flow that reaches gameplay and endgame cleanly
+- A working gameplay module with dedicated domain, orchestration, and UI layers
+- An additive endgame overlay model with in-place replay and platform-aware quit behavior
 
-The main remaining work is refinement rather than first-pass implementation.
-The next major milestone is to harden the gameplay scene wiring, validate the Burst-backed AI path in Unity, and continue polishing the board and HUD experience.
+The main remaining work is refinement and validation rather than first-pass feature creation.
 
-Use only the new Unity Input System.
+## Follow-Up Work
+
+The most likely next tasks are:
+
+- Validate Burst-backed AI behavior and performance in player builds, not only in-editor
+- Continue AI tuning beyond the current positional heuristic and search-depth mapping
+- Polish gameplay feedback, board presentation, and endgame UX
+- Clean up any remaining scene wiring assumptions that still rely on object-name lookup
+- Decide whether `MainMenu` should be implemented or removed from the state enum
